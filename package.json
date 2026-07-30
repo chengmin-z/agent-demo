@@ -1,0 +1,32 @@
+{
+  "name": "k3-local-agent",
+  "version": "0.1.0",
+  "description": "A safe local TypeScript agent powered by Kimi K3",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/main.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "format": "prettier --write \"src/**/*.ts\" \"*.json\" --ignore-unknown",
+    "format:check": "prettier --check \"src/**/*.ts\" \"*.json\" --ignore-unknown"
+  },
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "ignoreDeprecations": "6.0",
+  "packageManager": "pnpm@10.30.3",
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "prettier": "^3.9.6",
+    "tsx": "^4.23.1",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "openai": "^7.0.0",
+    "zod": "^4.4.3"
+  }
+}
