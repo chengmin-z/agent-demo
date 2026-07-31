@@ -11,6 +11,7 @@ import { createReadFileTool } from "./tools/read-file.js";
 import { Workspace } from "./workspace/workspace.js";
 import { DEFAULT_SYSTEM_PROMPT } from "./agent/system-prompt.js";
 import { runChatLoop } from "./cli/chat-loop.js";
+import { InMemoryConversationStore } from "./conversations/in-memory-conversation-store.js";
 
 const config = loadConfig(process.env);
 const client = createKimiClient(config);
@@ -29,4 +30,6 @@ const agentEngine = new AgentEngine(
   config.MAX_AGENT_STEPS,
 );
 
-await runChatLoop(agentEngine);
+const conversationStore = new InMemoryConversationStore();
+
+await runChatLoop(agentEngine, conversationStore);
