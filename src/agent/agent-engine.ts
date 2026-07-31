@@ -33,6 +33,7 @@ export class AgentEngine {
   constructor(
     private readonly modelGateway: ModelGateway,
     private readonly toolRegistry: ToolRegistry,
+    private readonly systemPrompt: string,
     private readonly maxSteps: number,
   ) {
     if (!Number.isInteger(maxSteps) || maxSteps < 1) {
@@ -42,6 +43,10 @@ export class AgentEngine {
 
   async run(prompt: string, signal: AbortSignal): Promise<AgentRunResult> {
     const messages: KimiChatMessage[] = [
+      {
+        role: "system",
+        content: this.systemPrompt,
+      },
       {
         role: "user",
         content: prompt,

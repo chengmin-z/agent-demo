@@ -1,0 +1,64 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "pnpm: format",
+      "type": "process",
+      "command": "pnpm",
+      "args": ["format"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "pnpm: typecheck",
+      "type": "process",
+      "command": "pnpm",
+      "args": ["typecheck"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": "$tsc",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "pnpm: format:check",
+      "type": "process",
+      "command": "pnpm",
+      "args": ["format:check"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "pnpm: format + verify",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "pnpm: format",
+        "pnpm: typecheck",
+        "pnpm: format:check"
+      ],
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    }
+  ]
+}

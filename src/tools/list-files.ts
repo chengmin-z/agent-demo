@@ -4,6 +4,10 @@ import { join, relative } from "node:path";
 import { z } from "zod";
 
 import { Workspace } from "../workspace/workspace.js";
+import {
+  isProtectedName,
+  containsProtectedSegment,
+} from "../workspace/file-access-policy.js";
 import { defineTool } from "./tool.js";
 
 const listFilesInputSchema = z.object({
@@ -12,21 +16,6 @@ const listFilesInputSchema = z.object({
 
 type EntryKind = "file" | "directory" | "symlink" | "other";
 const MAX_ENTRIES = 100;
-
-function isSensitive(name: string): boolean {
-  const blacklist = [".git", "node_modules", "dist", ".env"];
-  if (blacklist.includes(name)) {
-    return true;
-  }
-  if (name.startsWith(".env.") && name !== ".env.example") {
-    return true;
-  }
-  return false;
-}
-
-function containsSensitiveSegment(path: string): boolean {
-  return path.split(/[\\/]+/).some((segment) => isSensitive(segment));
-}
 
 function getEntryKind(dir: Dirent): EntryKind {
   if (dir.isSymbolicLink()) {
@@ -49,8 +38,8 @@ export function createListFileTool(workspace: Workspace) {
       signal.throwIfAborted();
       const resolvedPath = await workspace.resolveExisting(input.path);
 
-      const basePath = relative(workspace.root, resolvedPath) || ".";
-      if (containsSensitiveSegment(basePath)) {
+      const relativePath = relative(workspace.root, resolvedPath) || ".";
+      if (containsProtectedSegment(relativePath)) {
         throw new Error("Requested path is protected");
       }
 
@@ -64,11 +53,11 @@ export function createListFileTool(workspace: Workspace) {
 
       const resolvedEntries = entries
         .filter((entry) => {
-          return !isSensitive(entry.name);
+          return !isProtectedName(entry.name);
         })
         .sort((left, right) => left.name.localeCompare(right.name))
         .map((entry) => {
-          const entryPath = join(basePath, entry.name);
+          const entryPath = join(relativePath, entry.name);
           return {
             path: entryPath,
             kind: getEntryKind(entry),
@@ -80,7 +69,7 @@ export function createListFileTool(workspace: Workspace) {
 
       return {
         content: JSON.stringify({
-          path: basePath,
+          path: relativePath,
           entries: limitedEntries,
           truncated,
         }),

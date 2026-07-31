@@ -7,7 +7,9 @@ import { addNumbersTool } from "./tools/add-numbers.js";
 import { ToolRegistry } from "./tools/tool-registry.js";
 import { AgentEngine } from "./agent/agent-engine.js";
 import { createListFileTool } from "./tools/list-files.js";
+import { createReadFileTool } from "./tools/read-file.js";
 import { Workspace } from "./workspace/workspace.js";
+import { DEFAULT_SYSTEM_PROMPT } from "./agent/system-prompt.js";
 
 const config = loadConfig(process.env);
 const client = createKimiClient(config);
@@ -16,18 +18,20 @@ const workspace = await Workspace.open(process.cwd());
 const toolRegistry = new ToolRegistry([
   addNumbersTool,
   createListFileTool(workspace),
+  createReadFileTool(workspace),
 ]);
 
 const agentEngine = new AgentEngine(
   modelGateway,
   toolRegistry,
+  DEFAULT_SYSTEM_PROMPT,
   config.MAX_AGENT_STEPS,
 );
 
 const abortController = new AbortController();
 
 const result = await agentEngine.run(
-  "You must use the list_files tool to list the workspace root. Then briefly summarize the project structure. Do not guess.",
+  "Can you read package.json? Report the project name, scripts, dependencies, and devDependencies using only the file contents.",
   abortController.signal,
 );
 

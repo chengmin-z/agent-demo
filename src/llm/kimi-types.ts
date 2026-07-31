@@ -37,5 +37,10 @@ export type KimiToolMessage = {
   content: string;
 };
 
+export type KimiSystemMessage = {
+  role: "system";
+  content: string;
+};
+
 export type KimiChatMessage =
-  KimiUserMessage | KimiAssistantMessage | KimiToolMessage;
+  KimiUserMessage | KimiAssistantMessage | KimiToolMessage | KimiSystemMessage;
