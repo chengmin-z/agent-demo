@@ -2,6 +2,7 @@ import type {
   KimiAssistantMessage,
   KimiChatMessage,
   KimiFunctionToolCall,
+  KimiUserMessage,
 } from "../llm/kimi-types.js";
 import type { ModelGateway } from "../llm/model-gateway.js";
 import type { ToolRegistry } from "../tools/tool-registry.js";
@@ -41,17 +42,31 @@ export class AgentEngine {
     }
   }
 
-  async run(prompt: string, signal: AbortSignal): Promise<AgentRunResult> {
-    const messages: KimiChatMessage[] = [
-      {
-        role: "system",
-        content: this.systemPrompt,
-      },
-      {
-        role: "user",
-        content: prompt,
-      },
-    ];
+  async runTurn(
+    history: readonly KimiChatMessage[],
+    prompt: string,
+    signal: AbortSignal,
+  ): Promise<AgentRunResult> {
+    let messages: KimiChatMessage[];
+    const userMessage: KimiUserMessage = {
+      role: "user",
+      content: prompt,
+    };
+    if (history.length === 0) {
+      messages = [
+        {
+          role: "system",
+          content: this.systemPrompt,
+        },
+        userMessage,
+      ];
+    } else {
+      if (history[0]?.role !== "system") {
+        throw new Error("the first message must be system message");
+      }
+      messages = [...history];
+      messages.push(userMessage);
+    }
 
     const toolExecutions: AgentToolExecution[] = [];
 

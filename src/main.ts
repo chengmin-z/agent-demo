@@ -10,6 +10,7 @@ import { createListFileTool } from "./tools/list-files.js";
 import { createReadFileTool } from "./tools/read-file.js";
 import { Workspace } from "./workspace/workspace.js";
 import { DEFAULT_SYSTEM_PROMPT } from "./agent/system-prompt.js";
+import { runChatLoop } from "./cli/chat-loop.js";
 
 const config = loadConfig(process.env);
 const client = createKimiClient(config);
@@ -28,20 +29,4 @@ const agentEngine = new AgentEngine(
   config.MAX_AGENT_STEPS,
 );
 
-const abortController = new AbortController();
-
-const result = await agentEngine.run(
-  "Can you read package.json? Report the project name, scripts, dependencies, and devDependencies using only the file contents.",
-  abortController.signal,
-);
-
-for (const execution of result.toolExecutions) {
-  console.log(
-    `Tool ${execution.toolName} ` +
-      `${execution.result.isError ? "failed" : "succeeded"}:`,
-    execution.result.content,
-  );
-}
-
-console.log("Steps:", result.steps);
-console.log("Final response:", result.finalMessage.content);
+await runChatLoop(agentEngine);
