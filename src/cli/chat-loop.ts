@@ -1,8 +1,68 @@
 import { stdin as input, stdout as output } from "node:process";
 import { createInterface } from "node:readline/promises";
 
-import type { AgentEngine } from "../agent/agent-engine.js";
+import type {
+  AgentEngine,
+  AgentRunResult,
+  AgentRunEvent,
+} from "../agent/agent-engine.js";
 import type { ConversationStore } from "../conversations/conversation-store.js";
+
+type TerminalAgentEventRenderer = {
+  handle(event: AgentRunEvent): void;
+  finish(): void;
+};
+
+function createTerminalAgentEventRenderer(): TerminalAgentEventRenderer {
+  let assistantLineOpen = false;
+
+  function closeAssistantLine(): void {
+    if (assistantLineOpen) {
+      output.write("\n");
+      assistantLineOpen = false;
+    }
+  }
+
+  return {
+    handle(event): void {
+      switch (event.type) {
+        case "turn-start":
+          closeAssistantLine();
+          output.write(
+            `[context:start] ${event.contextStats.selectedMessages}/` +
+              `${event.contextStats.totalMessages} messages, ` +
+              `~${event.contextStats.estimatedTokens} tokens\n`,
+          );
+          break;
+
+        case "assistant-text-delta":
+          if (!assistantLineOpen) {
+            output.write("Agent> ");
+            assistantLineOpen = true;
+          }
+
+          output.write(event.delta);
+          break;
+
+        case "tool-start":
+          closeAssistantLine();
+          output.write(`[tool] ${event.toolName} started\n`);
+          break;
+
+        case "tool-finish": {
+          closeAssistantLine();
+          const status = event.isError ? "failed" : "succeeded";
+          output.write(`[tool] ${event.toolName} ${status}\n`);
+          break;
+        }
+      }
+    },
+
+    finish(): void {
+      closeAssistantLine();
+    },
+  };
+}
 
 export async function runChatLoop(
   agentEngine: AgentEngine,
@@ -31,26 +91,20 @@ export async function runChatLoop(
 
       try {
         const history = await conversationStore.load();
-        const result = await agentEngine.runTurn(
-          history,
-          prompt,
-          abortController.signal,
-        );
+        const renderer = createTerminalAgentEventRenderer();
 
-        await conversationStore.save(result.messages);
-
-        console.log(
-          `[context:start] ${result.contextStats.selectedMessages}/` +
-            `${result.contextStats.totalMessages} messages, ` +
-            `~${result.contextStats.estimatedTokens} tokens`,
-        );
-
-        for (const execution of result.toolExecutions) {
-          const status = execution.result.isError ? "failed" : "succeeded";
-          console.log(`[tool] ${execution.toolName} ${status}`);
+        let result: AgentRunResult;
+        try {
+          result = await agentEngine.runStreamingTurn(
+            history,
+            prompt,
+            renderer.handle,
+            abortController.signal,
+          );
+          await conversationStore.save(result.messages);
+        } finally {
+          renderer.finish();
         }
-
-        console.log(`Agent> ${result.finalMessage.content ?? ""}`);
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
         console.error(`[error] ${message}`);
