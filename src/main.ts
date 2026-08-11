@@ -13,6 +13,7 @@ import { DEFAULT_SYSTEM_PROMPT } from "./agent/system-prompt.js";
 import { runChatLoop } from "./cli/chat-loop.js";
 import { defaultConversationDatabasePath } from "./conversations/data-path.js";
 import { SqliteConversationStore } from "./conversations/sqlite-conversation-store.js";
+import { RecentTurnsContextBuilder } from "./context/recent-turns-context-builder.js";
 
 const config = loadConfig(process.env);
 const client = createKimiClient(config);
@@ -23,10 +24,15 @@ const toolRegistry = new ToolRegistry([
   createListFileTool(workspace),
   createReadFileTool(workspace),
 ]);
+const contextBuilder = new RecentTurnsContextBuilder(
+  config.MAX_CONTEXT_TURNS,
+  config.MAX_CONTEXT_ESTIMATED_TOKENS,
+);
 
 const agentEngine = new AgentEngine(
   modelGateway,
   toolRegistry,
+  contextBuilder,
   DEFAULT_SYSTEM_PROMPT,
   config.MAX_AGENT_STEPS,
 );

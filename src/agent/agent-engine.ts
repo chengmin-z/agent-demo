@@ -1,12 +1,21 @@
 import type {
   KimiAssistantMessage,
   KimiChatMessage,
+  KimiToolMessage,
   KimiFunctionToolCall,
   KimiUserMessage,
 } from "../llm/kimi-types.js";
 import type { ModelGateway } from "../llm/model-gateway.js";
 import type { ToolRegistry } from "../tools/tool-registry.js";
 import type { ToolResult } from "../tools/tool.js";
+import type { ContextBuilder } from "../context/context-builder.js";
+import { estimateContextTokens } from "../context/estimate-context-tokens.js";
+
+export type AgentContextStats = {
+  totalMessages: number;
+  selectedMessages: number;
+  estimatedTokens: number;
+};
 
 export type AgentToolExecution = {
   toolCallId: string;
@@ -18,6 +27,7 @@ export type AgentRunResult = {
   finalMessage: KimiAssistantMessage;
   messages: readonly KimiChatMessage[];
   toolExecutions: readonly AgentToolExecution[];
+  contextStats: AgentContextStats;
   steps: number;
 };
 
@@ -34,6 +44,7 @@ export class AgentEngine {
   constructor(
     private readonly modelGateway: ModelGateway,
     private readonly toolRegistry: ToolRegistry,
+    private readonly contextBuilder: ContextBuilder,
     private readonly systemPrompt: string,
     private readonly maxSteps: number,
   ) {
@@ -47,13 +58,14 @@ export class AgentEngine {
     prompt: string,
     signal: AbortSignal,
   ): Promise<AgentRunResult> {
-    let messages: KimiChatMessage[];
+    // Build the persistent messages for this turn, starting with the system prompt if this is the first turn
+    let persistentMessages: KimiChatMessage[];
     const userMessage: KimiUserMessage = {
       role: "user",
       content: prompt,
     };
     if (history.length === 0) {
-      messages = [
+      persistentMessages = [
         {
           role: "system",
           content: this.systemPrompt,
@@ -64,9 +76,17 @@ export class AgentEngine {
       if (history[0]?.role !== "system") {
         throw new Error("the first message must be system message");
       }
-      messages = [...history];
-      messages.push(userMessage);
+      persistentMessages = [...history];
+      persistentMessages.push(userMessage);
     }
+
+    const contextMessages = [...this.contextBuilder.build(persistentMessages)];
+
+    const contextStats: AgentContextStats = {
+      totalMessages: persistentMessages.length,
+      selectedMessages: contextMessages.length,
+      estimatedTokens: estimateContextTokens(contextMessages),
+    };
 
     const toolExecutions: AgentToolExecution[] = [];
 
@@ -74,20 +94,22 @@ export class AgentEngine {
       signal.throwIfAborted();
 
       const assistantMessage = await this.modelGateway.complete(
-        messages,
+        contextMessages,
         this.toolRegistry.definitions,
         signal,
       );
 
-      messages.push(assistantMessage);
+      contextMessages.push(assistantMessage);
+      persistentMessages.push(assistantMessage);
 
       const toolCalls = assistantMessage.tool_calls ?? [];
 
       if (toolCalls.length === 0) {
         return {
           finalMessage: assistantMessage,
-          messages: [...messages],
+          messages: [...persistentMessages],
           toolExecutions: [...toolExecutions],
+          contextStats: contextStats,
           steps: step,
         };
       }
@@ -102,11 +124,14 @@ export class AgentEngine {
           result,
         });
 
-        messages.push({
+        const toolMessage: KimiToolMessage = {
           role: "tool",
           tool_call_id: toolCall.id,
           content: result.content,
-        });
+        };
+
+        contextMessages.push(toolMessage);
+        persistentMessages.push(toolMessage);
       }
     }
 

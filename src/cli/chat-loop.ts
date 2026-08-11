@@ -39,6 +39,12 @@ export async function runChatLoop(
 
         await conversationStore.save(result.messages);
 
+        console.log(
+          `[context:start] ${result.contextStats.selectedMessages}/` +
+            `${result.contextStats.totalMessages} messages, ` +
+            `~${result.contextStats.estimatedTokens} tokens`,
+        );
+
         for (const execution of result.toolExecutions) {
           const status = execution.result.isError ? "failed" : "succeeded";
           console.log(`[tool] ${execution.toolName} ${status}`);

@@ -6,6 +6,12 @@ const configSchema = z.object({
   KIMI_MODEL: z.string().min(1).default("kimi-k3"),
   KIMI_REASONING_EFFORT: z.enum(["low", "high", "max"]).default("low"),
   MAX_AGENT_STEPS: z.coerce.number().int().positive().default(12),
+  MAX_CONTEXT_TURNS: z.coerce.number().int().positive().default(4),
+  MAX_CONTEXT_ESTIMATED_TOKENS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(12_000),
 });
 
 export type AppConfig = z.infer<typeof configSchema>;
