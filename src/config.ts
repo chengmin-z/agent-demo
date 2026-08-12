@@ -2,7 +2,7 @@ import { z } from "zod";
 
 const configSchema = z.object({
   MOONSHOT_API_KEY: z.string().min(1, "MOONSHOT_API_KEY is required"),
-  KIMI_BASE_URL: z.string().url().default("https://api.kimi.com/coding/v1"),
+  KIMI_BASE_URL: z.string().url().default("https://api.moonshot.cn/v1"),
   KIMI_MODEL: z.string().min(1).default("kimi-k3"),
   KIMI_REASONING_EFFORT: z.enum(["low", "high", "max"]).default("low"),
   MAX_AGENT_STEPS: z.coerce.number().int().positive().default(12),
@@ -12,6 +12,7 @@ const configSchema = z.object({
     .int()
     .positive()
     .default(12_000),
+  KIMI_MAX_TOKENS: z.coerce.number().int().positive().default(16_000),
 });
 
 export type AppConfig = z.infer<typeof configSchema>;

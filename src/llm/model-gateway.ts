@@ -1,6 +1,20 @@
 import type { KimiAssistantMessage, KimiChatMessage } from "./kimi-types.js";
 import type { ToolDefinition } from "../tools/tool.js";
 
+export type TokenUsage = {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+};
+
+export type ModelCompletion = {
+  message: KimiAssistantMessage;
+  usage: TokenUsage | undefined;
+};
+
+export type ModelFinishReason =
+  "stop" | "length" | "tool_calls" | "content_filter" | "function_call";
+
 export type ModelStreamEvent =
   | {
       type: "text-delta";
@@ -17,6 +31,14 @@ export type ModelStreamEvent =
       toolType: "function" | undefined;
       nameDelta: string | undefined;
       argumentsDelta: string | undefined;
+    }
+  | {
+      type: "message-finish";
+      finishReason: ModelFinishReason;
+    }
+  | {
+      type: "usage";
+      usage: TokenUsage;
     };
 
 export interface ModelGateway {
@@ -24,7 +46,7 @@ export interface ModelGateway {
     messages: readonly KimiChatMessage[],
     tools: readonly ToolDefinition[],
     signal: AbortSignal,
-  ): Promise<KimiAssistantMessage>;
+  ): Promise<ModelCompletion>;
 
   streamMessage(
     messages: readonly KimiChatMessage[],

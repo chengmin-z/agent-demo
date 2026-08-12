@@ -1,3 +1,4 @@
+import { performance } from "node:perf_hooks";
 import type {
   KimiAssistantMessage,
   KimiChatMessage,
@@ -5,12 +6,18 @@ import type {
   KimiFunctionToolCall,
   KimiUserMessage,
 } from "../llm/kimi-types.js";
-import type { ModelGateway } from "../llm/model-gateway.js";
+import type { ModelGateway, TokenUsage } from "../llm/model-gateway.js";
 import type { ToolRegistry } from "../tools/tool-registry.js";
 import type { ToolResult } from "../tools/tool.js";
 import type { ContextBuilder } from "../context/context-builder.js";
 import { estimateContextTokens } from "../context/estimate-context-tokens.js";
 import { StreamingAssistantMessageAssembler } from "../llm/streaming-assistant-message-assembler.js";
+
+export type AgentRunTiming = {
+  timeToFirstDeltaMs: number | undefined;
+  timeToFirstTextMs: number | undefined;
+  durationMs: number;
+};
 
 export type AgentContextStats = {
   totalMessages: number;
@@ -30,6 +37,8 @@ export type AgentRunResult = {
   toolExecutions: readonly AgentToolExecution[];
   contextStats: AgentContextStats;
   steps: number;
+  usage: TokenUsage | undefined;
+  timing: AgentRunTiming;
 };
 
 export type AgentRunEvent =
@@ -54,6 +63,11 @@ export type AgentRunEvent =
       toolCallId: string;
       toolName: string;
       isError: boolean;
+    }
+  | {
+      type: "model-usage";
+      step: number;
+      usage: TokenUsage;
     };
 
 export type AgentRunEventHandler = (
@@ -75,6 +89,36 @@ function createErrorResult(error: unknown): ToolResult {
   };
 }
 
+function createEmptyTokenUsage(): TokenUsage {
+  return {
+    promptTokens: 0,
+    completionTokens: 0,
+    totalTokens: 0,
+  };
+}
+
+function addTokenUsage(current: TokenUsage, next: TokenUsage): TokenUsage {
+  return {
+    promptTokens: current.promptTokens + next.promptTokens,
+    completionTokens: current.completionTokens + next.completionTokens,
+    totalTokens: current.totalTokens + next.totalTokens,
+  };
+}
+
+function createRunTiming(
+  startedAt: number,
+  firstDeltaAt: number | undefined,
+  firstTextAt: number | undefined,
+): AgentRunTiming {
+  return {
+    timeToFirstDeltaMs:
+      firstDeltaAt === undefined ? undefined : firstDeltaAt - startedAt,
+    timeToFirstTextMs:
+      firstTextAt === undefined ? undefined : firstTextAt - startedAt,
+    durationMs: performance.now() - startedAt,
+  };
+}
+
 export class AgentEngine {
   constructor(
     private readonly modelGateway: ModelGateway,
@@ -93,18 +137,29 @@ export class AgentEngine {
     prompt: string,
     signal: AbortSignal,
   ): Promise<AgentRunResult> {
+    const startedAt = performance.now();
     const { persistentMessages, contextMessages, contextStats } =
       this.prepareTurn(history, prompt);
     const toolExecutions: AgentToolExecution[] = [];
 
+    let totalUsage = createEmptyTokenUsage();
+    let allUsageAvailable = true;
     for (let step = 1; step <= this.maxSteps; step++) {
       signal.throwIfAborted();
 
-      const assistantMessage = await this.modelGateway.complete(
+      const completion = await this.modelGateway.complete(
         contextMessages,
         this.toolRegistry.definitions,
         signal,
       );
+
+      if (completion.usage === undefined) {
+        allUsageAvailable = false;
+      } else {
+        totalUsage = addTokenUsage(totalUsage, completion.usage);
+      }
+
+      const assistantMessage = completion.message;
 
       contextMessages.push(assistantMessage);
       persistentMessages.push(assistantMessage);
@@ -118,6 +173,8 @@ export class AgentEngine {
           toolExecutions: [...toolExecutions],
           contextStats: contextStats,
           steps: step,
+          usage: allUsageAvailable ? totalUsage : undefined,
+          timing: createRunTiming(startedAt, undefined, undefined),
         };
       }
 
@@ -151,6 +208,9 @@ export class AgentEngine {
     onEvent: AgentRunEventHandler,
     signal: AbortSignal,
   ): Promise<AgentRunResult> {
+    const startedAt = performance.now();
+    let firstDeltaAt: number | undefined;
+    let firstTextAt: number | undefined;
     const { persistentMessages, contextMessages, contextStats } =
       this.prepareTurn(history, prompt);
 
@@ -159,6 +219,9 @@ export class AgentEngine {
       contextStats,
     });
 
+    let totalUsage = createEmptyTokenUsage();
+    let allUsageAvailable = true;
+
     const toolExecutions: AgentToolExecution[] = [];
     const toolDefinitions = this.toolRegistry.definitions;
 
@@ -166,6 +229,7 @@ export class AgentEngine {
       signal.throwIfAborted();
 
       const assembler = new StreamingAssistantMessageAssembler();
+      let stepUsage: TokenUsage | undefined;
 
       for await (const event of this.modelGateway.streamMessage(
         contextMessages,
@@ -174,15 +238,43 @@ export class AgentEngine {
       )) {
         signal.throwIfAborted();
 
+        if (
+          event.type === "reasoning-delta" ||
+          event.type === "text-delta" ||
+          event.type === "tool-call-delta"
+        ) {
+          firstDeltaAt ??= performance.now();
+        }
+
+        if (event.type === "usage") {
+          stepUsage = event.usage;
+
+          await onEvent({
+            type: "model-usage",
+            step,
+            usage: event.usage,
+          });
+
+          continue;
+        }
+
         assembler.add(event);
 
         if (event.type === "text-delta") {
+          firstTextAt ??= performance.now();
+
           await onEvent({
             type: "assistant-text-delta",
             step,
             delta: event.delta,
           });
         }
+      }
+
+      if (stepUsage === undefined) {
+        allUsageAvailable = false;
+      } else {
+        totalUsage = addTokenUsage(totalUsage, stepUsage);
       }
 
       const assistantMessage = assembler.finish();
@@ -199,6 +291,8 @@ export class AgentEngine {
           toolExecutions: [...toolExecutions],
           contextStats,
           steps: step,
+          usage: allUsageAvailable ? totalUsage : undefined,
+          timing: createRunTiming(startedAt, firstDeltaAt, firstTextAt),
         };
       }
 

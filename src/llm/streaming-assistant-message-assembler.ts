@@ -2,7 +2,8 @@ import {
   kimiAssistantMessageSchema,
   type KimiAssistantMessage,
 } from "./kimi-types.js";
-import type { ModelStreamEvent } from "./model-gateway.js";
+import type { ModelStreamEvent, ModelFinishReason } from "./model-gateway.js";
+import { assertFinishReasonCompatible } from "./validate-finish-reason.js";
 
 type ToolCallDraft = {
   id?: string;
@@ -14,9 +15,15 @@ type ToolCallDraft = {
 export class StreamingAssistantMessageAssembler {
   private content = "";
   private reasoningContent = "";
+  private finished = false;
+  private finishReason: ModelFinishReason | undefined;
   private readonly toolCallDrafts = new Map<number, ToolCallDraft>();
 
   add(event: ModelStreamEvent): void {
+    if (this.finished) {
+      throw new Error("Cannot add events after finish");
+    }
+
     switch (event.type) {
       case "text-delta":
         this.content += event.delta;
@@ -68,10 +75,27 @@ export class StreamingAssistantMessageAssembler {
         this.toolCallDrafts.set(event.index, draft);
         break;
       }
+      case "message-finish":
+        if (this.finishReason !== undefined) {
+          throw new Error("Duplicate message finish event");
+        }
+
+        this.finished = true;
+        this.finishReason = event.finishReason;
+        break;
     }
   }
 
   finish(): KimiAssistantMessage {
+    if (this.finishReason === undefined) {
+      throw new Error("Stream ended without message finish event");
+    }
+
+    assertFinishReasonCompatible(
+      this.finishReason,
+      this.toolCallDrafts.size > 0,
+    );
+
     const toolCalls = [...this.toolCallDrafts.entries()]
       .sort(([leftIndex], [rightIndex]) => leftIndex - rightIndex)
       .map(([index, draft]) => {

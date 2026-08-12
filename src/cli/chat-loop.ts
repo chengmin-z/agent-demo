@@ -55,6 +55,16 @@ function createTerminalAgentEventRenderer(): TerminalAgentEventRenderer {
           output.write(`[tool] ${event.toolName} ${status}\n`);
           break;
         }
+
+        case "model-usage":
+          closeAssistantLine();
+          output.write(
+            `[usage:step ${event.step}] ` +
+              `input=${event.usage.promptTokens}, ` +
+              `output=${event.usage.completionTokens}, ` +
+              `total=${event.usage.totalTokens}\n`,
+          );
+          break;
       }
     },
 
@@ -62,6 +72,34 @@ function createTerminalAgentEventRenderer(): TerminalAgentEventRenderer {
       closeAssistantLine();
     },
   };
+}
+
+function writeTurnSummary(result: AgentRunResult): void {
+  const firstDelta =
+    result.timing.timeToFirstDeltaMs === undefined
+      ? "unavailable"
+      : `${Math.round(result.timing.timeToFirstDeltaMs)}ms`;
+
+  const firstText =
+    result.timing.timeToFirstTextMs === undefined
+      ? "unavailable"
+      : `${Math.round(result.timing.timeToFirstTextMs)}ms`;
+
+  const usage =
+    result.usage === undefined
+      ? "usage=unavailable"
+      : `input=${result.usage.promptTokens}, ` +
+        `output=${result.usage.completionTokens}, ` +
+        `total=${result.usage.totalTokens}`;
+
+  output.write(
+    `[turn] steps=${result.steps}, ` +
+      `tools=${result.toolExecutions.length}, ` +
+      `${usage}, ` +
+      `first_delta=${firstDelta}, ` +
+      `first_text=${firstText}, ` +
+      `duration=${Math.round(result.timing.durationMs)}ms\n`,
+  );
 }
 
 export async function runChatLoop(
@@ -105,6 +143,8 @@ export async function runChatLoop(
         } finally {
           renderer.finish();
         }
+
+        writeTurnSummary(result);
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
         console.error(`[error] ${message}`);

@@ -4,10 +4,14 @@ import type { AppConfig } from "../config.js";
 import {
   kimiAssistantMessageSchema,
   type KimiChatMessage,
-  type KimiAssistantMessage,
 } from "./kimi-types.js";
 import type { ToolDefinition } from "../tools/tool.js";
-import type { ModelGateway, ModelStreamEvent } from "./model-gateway.js";
+import type {
+  ModelGateway,
+  ModelStreamEvent,
+  ModelCompletion,
+} from "./model-gateway.js";
+import { assertFinishReasonCompatible } from "./validate-finish-reason.js";
 
 type KimiChatCompletionDelta =
   OpenAI.Chat.Completions.ChatCompletionChunk.Choice.Delta & {
@@ -24,7 +28,7 @@ export class KimiModelGateway implements ModelGateway {
     messages: readonly KimiChatMessage[],
     tools: readonly ToolDefinition[] = [],
     signal: AbortSignal,
-  ): Promise<KimiAssistantMessage> {
+  ): Promise<ModelCompletion> {
     const reqMessages = messages.map(
       (msg) => msg as OpenAI.Chat.Completions.ChatCompletionMessageParam,
     );
@@ -34,7 +38,7 @@ export class KimiModelGateway implements ModelGateway {
         model: this.config.KIMI_MODEL,
         messages: reqMessages,
         reasoning_effort: this.config.KIMI_REASONING_EFFORT,
-        max_completion_tokens: 512,
+        max_tokens: this.config.KIMI_MAX_TOKENS,
       };
 
     if (tools.length > 0) {
@@ -46,13 +50,29 @@ export class KimiModelGateway implements ModelGateway {
       signal,
     });
 
-    const rawMessage = completion.choices[0]?.message;
+    const choice = completion.choices.find((item) => item.index === 0);
 
-    if (rawMessage === undefined) {
-      throw new Error("Kimi returned no assistant message");
+    if (choice === undefined) {
+      throw new Error("Kimi returned no assistant choice");
     }
 
-    return kimiAssistantMessageSchema.parse(rawMessage);
+    assertFinishReasonCompatible(
+      choice.finish_reason,
+      (choice.message.tool_calls?.length ?? 0) > 0,
+    );
+
+    const message = kimiAssistantMessageSchema.parse(choice.message);
+
+    return {
+      message,
+      usage: completion.usage
+        ? {
+            promptTokens: completion.usage.prompt_tokens,
+            completionTokens: completion.usage.completion_tokens,
+            totalTokens: completion.usage.total_tokens,
+          }
+        : undefined,
+    };
   }
 
   async *streamMessage(
@@ -69,8 +89,11 @@ export class KimiModelGateway implements ModelGateway {
         model: this.config.KIMI_MODEL,
         messages: reqMessages,
         reasoning_effort: this.config.KIMI_REASONING_EFFORT,
-        max_completion_tokens: 512,
+        max_tokens: this.config.KIMI_MAX_TOKENS,
         stream: true,
+        stream_options: {
+          include_usage: true,
+        },
       };
 
     if (tools.length > 0) {
@@ -83,14 +106,25 @@ export class KimiModelGateway implements ModelGateway {
     });
 
     for await (const chunk of stream) {
-      const rawDelta = chunk.choices.find(
-        (choice) => choice.index === 0,
-      )?.delta;
+      if (chunk.usage !== null && chunk.usage !== undefined) {
+        yield {
+          type: "usage",
+          usage: {
+            promptTokens: chunk.usage.prompt_tokens,
+            completionTokens: chunk.usage.completion_tokens,
+            totalTokens: chunk.usage.total_tokens,
+          },
+        };
+      }
 
-      if (rawDelta === undefined) {
+      const choice = chunk.choices.find((choice) => choice.index === 0);
+
+      if (choice === undefined) {
         continue;
       }
-      const delta = rawDelta as KimiChatCompletionDelta;
+
+      const delta = choice.delta as KimiChatCompletionDelta;
+
       if (
         typeof delta.reasoning_content === "string" &&
         delta.reasoning_content.length > 0
@@ -116,6 +150,13 @@ export class KimiModelGateway implements ModelGateway {
           toolType: toolCall.type,
           nameDelta: toolCall.function?.name,
           argumentsDelta: toolCall.function?.arguments,
+        };
+      }
+
+      if (choice.finish_reason !== null) {
+        yield {
+          type: "message-finish",
+          finishReason: choice.finish_reason,
         };
       }
     }
