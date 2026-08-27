@@ -6,11 +6,12 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/main.ts",
-    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test \"test/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
     "build": "tsc",
     "start": "node dist/main.js",
-    "format": "prettier --write \"src/**/*.ts\" \"*.json\" --ignore-unknown",
-    "format:check": "prettier --check \"src/**/*.ts\" \"*.json\" --ignore-unknown"
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\" \"*.json\" --ignore-unknown",
+    "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\" \"*.json\" --ignore-unknown"
   },
   "license": "UNLICENSED",
   "engines": {
